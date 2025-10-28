@@ -1,0 +1,23 @@
+{
+"name": "Pappas Facts",
+"short_name": "PappasFacts",
+"start_url": ".",
+"display": "standalone",
+"background_color": "#111827",
+"theme_color": "#f97316",
+"description": "A times table practice app.",
+"icons": [
+{
+"src": "https://www.google.com/url?sa=E&source=gmail&q=https://placehold.co/192x192/f97316/111827?text=PF",
+"sizes": "192x192",
+"type": "image/png",
+"purpose": "any maskable"
+},
+{
+"src": "https://www.google.com/search?q=https://placehold.co/512x512/f97316/111827%3Ftext%3DPF",
+"sizes": "512x512",
+"type": "image/png",
+"purpose": "any maskable"
+}
+]
+}

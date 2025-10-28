@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pappas Facts</title>
+    
+    <!-- Load Tailwind CSS --><script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Configure Tailwind Theme --><script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            'orange': '#f97316', // orange-500
+                            'orange-dark': '#ea580c', // orange-600
+                            'orange-light': '#fb923c', // orange-400
+                            'black': '#111827', // gray-900
+                            'gray': '#1f2937', // gray-800
+                            'gray-light': '#374151', // gray-700
+                            'text': '#f3f4f6', // gray-100
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- PWA Manifest (links to external file) -->
+    <link id="manifest-link" rel="manifest" href="manifest.json">
+    
+    <!-- iOS PWA Tags --><meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Pappas Facts">
+    
+    <!-- Theme Color --><meta name="theme-color" content="#f97316">
+    
+    <style>
+        /* Basic styles */
+        body {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        /* Custom styles for the app */
+        .btn {
+            @apply w-full px-6 py-4 rounded-lg text-lg font-bold text-white shadow-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-brand-orange-light focus:ring-offset-2 focus:ring-offset-brand-black;
+        }
+        .btn-primary {
+            @apply bg-brand-orange hover:bg-brand-orange-dark;
+        }
+        .btn-secondary {
+            @apply bg-brand-gray-light hover:bg-brand-gray;
+        }
+        .btn-outline {
+             @apply bg-transparent border-2 border-brand-orange text-brand-orange-light hover:bg-brand-orange hover:text-white;
+        }
+        
+        /* Card style */
+        .card {
+            @apply w-full max-w-md p-6 sm:p-8 bg-brand-gray rounded-xl shadow-2xl;
+        }
+        
+        /* Input style - REMOVED CLASS, will be applied INLINE */
+        
+        /* Animation for feedback */
+        .feedback {
+            @apply py-2 px-4 rounded-md text-lg font-semibold;
+        }
+        .feedback-correct {
+            @apply bg-green-500 text-white;
+        }
+        .feedback-incorrect {
+            @apply bg-red-500 text-white;
+        }
+    </style>
+</head>
+<body class="bg-brand-black text-brand-text font-sans h-full flex flex-col items-center justify-center p-4">
+
+    <!-- Main App Container --><div id="app" class="w-full max-w-md space-y-6">
+        <!-- Content will be rendered here by JavaScript --></div>
+
+    <script>
+        // --- APPLICATION LOGIC ---
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            const app = document.getElementById('app');
+            
+            // --- PWA Setup ---
+            
+            // 1. [MODIFIED] Manifest is now linked in the <head>
+
+            // 2. [MODIFIED] Register the external Service Worker file
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('sw.js')
+                    .then(() => {
+                        // console.log('Service Worker Registered');
+                    })
+                    .catch((error) => {
+                        console.error('Service Worker Registration Failed:', error);
+                    });
+            }
+
+            // --- App State ---
+            let state = {
+                screen: 'menu', // 'menu', 'select', 'practice', 'test', 'test-results', 'set', 'set-results'
+                mode: null, // 'practice', 'test', 'set'
+                selectedTable: null,
+                problemSet: [],
+                problemIndex: 0,
+                score: 0,
+                timerId: null,
+                timeLeft: 60,
+                practiceStage: 'show', // 'show' or 'quiz'
+                // For 3-Number Set Mode
+                currentSet: { a: 0, b: 0, answer: 0 },
+                setRepetitions: 0,
+                maxSetRepetitions: 3, // Quiz 3 times per set
+                setQuizStage: 'memorize', // 'memorize', 'quiz'
+                setMissingPart: null, // 'a', 'b', 'answer'
+            };
+
+            // --- Utility Functions ---
+            
+            /**
+             * Generates a problem set for a given table (x0 to x12).
+             * @param {number} table - The times table (e.g., 7).
+             * @returns {Array<object>} - Array of {a, b, answer} objects.
+             */
+            function generateProblemSet(table) {
+                const set = [];
+                for (let i = 0; i <= 12; i++) {
+                    set.push({ a: table, b: i, answer: table * i });
+                }
+                return set;
+            }
+
+            /**
+             * Shuffles an array in place.
+             * @param {Array<any>} array - The array to shuffle.
+             */
+            function shuffleArray(array) {
+                for (let i = array.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [array[i], array[j]] = [array[j], array[i]];
+                }
+                return array;
+            }
+            
+            /**
+             * Clears the timer interval.
+             */
+            function stopTimer() {
+                if (state.timerId) {
+                    clearInterval(state.timerId);
+                    state.timerId = null;
+                }
+            }
+
+            // --- Render Functions ---
+            
+            /**
+             * Main render function - acts as a router.
+             */
+            function render() {
+                // Always clear timer if we're not in the test screen
+                if (state.screen !== 'test') {
+                    stopTimer();
+                }
+                
+                app.innerHTML = ''; // Clear the app container
+                
+                // Always add the header, except on the main menu
+                if (state.screen !== 'menu') {
+                    app.appendChild(renderHeader());
+                }
+                
+                // Render the correct screen
+                switch (state.screen) {
+                    case 'menu':
+                        app.appendChild(renderMenu());
+                        break;
+                    case 'select':
+                        app.appendChild(renderTableSelect());
+                        break;
+                    case 'practice':
+                        app.appendChild(renderPractice());
+                        break;
+                    case 'test':
+                        app.appendChild(renderTest());
+                        startTestTimer(); // Start timer when test screen renders
+                        break;
+                    case 'test-results':
+                        app.appendChild(renderTestResults());
+                        break;
+                    case 'set':
+                        app.appendChild(renderSetMode());
+                        break;
+                }
+            }
+            
+            /**
+             * Renders the header with "Back to Menu" button.
+             */
+            function renderHeader() {
+                const header = document.createElement('div');
+                header.className = 'w-full flex justify-between items-center mb-4';
+                header.innerHTML = `
+                    <h1 class="text-2xl font-bold text-brand-orange-light">Pappas Facts</h1>
+                    <button id="btn-menu" class="btn btn-secondary !w-auto !py-2 !px-4 !text-sm">Main Menu</button>
+                `;
+                return header;
+            }
+            
+            /**
+             * Renders the main menu.
+             */
+            function renderMenu() {
+                const div = document.createElement('div');
+                div.className = 'card text-center space-y-6 animate-fade-in';
+                div.innerHTML = `
+                    <h1 class="text-4xl font-bold text-brand-orange">Pappas Facts</h1>
+                    <p class="text-lg text-brand-text">Welcome! Choose a mode to start.</p>
+                    <div class="space-y-6">
+                        <button id="btn-practice" class="btn" style="background-color: #f97316;">Practice Mode</button>
+                        <button id="btn-test" class="btn" style="background-color: #f97316;">Test Mode</button>
+                        <button id="btn-set" class="btn" style="background-color: #f97316;">3-Number Sets</button>
+                    </div>
+                `;
+                return div;
+            }
+            
+            /**
+             * Renders the times table selection grid.
+             */
+            function renderTableSelect() {
+                let title = '';
+                switch (state.mode) {
+                    case 'practice': title = 'Practice Mode'; break;
+                    case 'test': title = 'Test Mode'; break;
+                    case 'set': title = '3-Number Sets'; break;
+                }
+                
+                const div = document.createElement('div');
+                div.className = 'card text-center space-y-4';
+                div.innerHTML = `
+                    <h2 class="text-2xl font-semibold">${title}</h2>
+                    <p class="text-brand-text">Select a times table to begin.</p>
+                    <div id="table-grid" class="grid grid-cols-4 gap-3">
+                        ${[...Array(11)].map((_, i) => i + 2).map(num => `
+                            <button data-table="${num}" class="btn btn-secondary !py-5 text-xl">${num}s</button>
+                        `).join('')}
+                    </div>
+                `;
+                return div;
+            }
+            
+            /**
+             * Renders the Practice Mode (flashcard) screen.
+             */
+            function renderPractice() {
+                const problem = state.problemSet[state.problemIndex];
+                if (!problem) {
+                    // Practice complete
+                    return renderPracticeComplete();
+                }
+                
+                const div = document.createElement('div');
+                div.className = 'card text-center space-y-6';
+
+                if (state.practiceStage === 'show') {
+                    // Step 1: Show the full fact
+                    div.innerHTML = `
+                        <div class="flex justify-between items-center">
+                             <h2 class="text-2xl font-semibold">${state.selectedTable}s Table</h2>
+                             <span class="text-lg font-mono">${state.problemIndex + 1} / ${state.problemSet.length}</span>
+                        </div>
+                        <p class="text-lg">First, memorize this fact:</p>
+                        <div class="text-6xl font-bold text-brand-orange-light p-8">
+                            ${problem.a} x ${problem.b} = ${problem.answer}
+                        </div>
+                        <button id="btn-practice-ready" class="btn btn-primary">Ready to Answer!</button>
+                    `;
+                } else {
+                    // Step 2: Quiz the user
+                    div.innerHTML = `
+                        <div class="flex justify-between items-center">
+                             <h2 class="text-2xl font-semibold">${state.selectedTable}s Table</h2>
+                             <span class="text-lg font-mono">${state.problemIndex + 1} / ${state.problemSet.length}</span>
+                        </div>
+                        
+                        <form id="practice-form">
+                            <div class="space-y-4">
+                                <div class="text-6xl font-bold text-brand-orange-light p-8">
+                                    ${problem.a} x ${problem.b}
+                                </div>
+                                <label for="practice-input" class="sr-only">Your Answer</label>
+                                <input type="text" id="practice-input" style="width: 100%; padding: 2rem 1.5rem; font-size: 3.75rem; line-height: 1; text-align: center; background-color: #111827; border-width: 8px; border-style: solid; border-color: #f97316; border-radius: 0.5rem; color: #ffffff; outline: none;" autocomplete="off" autofocus inputmode="numeric" pattern="[0-9]*">
+                                <div id="feedback-container" class="h-10"></div>
+                                <button type="submit" id="btn-practice-submit" class="btn btn-primary">Check Answer</button>
+                            </div>
+                        </form>
+                    `;
+                    // Auto-focus the input
+                    setTimeout(() => document.getElementById('practice-input')?.focus(), 100);
+                }
+                return div;
+            }
+
+            /**
+             * Renders the Practice Complete screen.
+             */
+            function renderPracticeComplete() {
+                const div = document.createElement('div');
+                div.className = 'card text-center space-y-6';
+                div.innerHTML = `
+                    <h2 class="text-3xl font-bold text-brand-orange">Practice Complete!</h2>
+                    <p class="text-lg">You finished the ${state.selectedTable}s table.</p>
+                    <div class="space-y-4">
+                        <button id="btn-practice-again" class="btn btn-primary">Practice Same Table</button>
+                        <button id="btn-select-new" class="btn btn-secondary">Choose New Table</button>
+                    </div>
+                `;
+                return div;
+            }
+
+            /**
+             * Renders the Test Mode screen.
+             */
+            function renderTest() {
+                const problem = state.problemSet[state.problemIndex];
+                
+                // Test ends if no problems left
+                if (!problem) {
+                    endTest();
+                    return; // render() will be called again by endTest
+                }
+                
+                const div = document.createElement('div');
+                div.className = 'card text-center space-y-6';
+                div.innerHTML = `
+                    <div class="flex justify-between items-center text-lg font-semibold">
+                         <h2 class="text-2xl text-brand-orange-light">${state.selectedTable}s Test</h2>
+                         <div id="timer" class="text-2xl font-mono ${state.timeLeft <= 10 ? 'text-red-500' : 'text-brand-orange'}">1:00</div>
+                    </div>
+                    
+                    <div class="flex justify-between items-center">
+                         <span class="text-lg">Problem: ${state.problemIndex + 1} / ${state.problemSet.length}</span>
+                         <span id="score" class="text-lg">Score: ${state.score}</span>
+                    </div>
+                    
+                    <form id="test-form">
+                        <div class="space-y-4">
+                            <div class="text-6xl font-bold text-brand-orange-light p-8">
+                                ${problem.a} x ${problem.b}
+                            </div>
+                            <label for="test-input" class="sr-only">Your Answer</label>
+                            <input type="text" id="test-input" style="width: 100%; padding: 2rem 1.5rem; font-size: 3.75rem; line-height: 1; text-align: center; background-color: #111827; border-width: 8px; border-style: solid; border-color: #f97316; border-radius: 0.5rem; color: #ffffff; outline: none;" autocomplete="off" autofocus inputmode="numeric" pattern="[0-9]*">
+                            <button type="submit" id="btn-test-submit" class="btn btn-primary">Submit</button>
+                        </div>
+                    </form>
+                `;
+                // Auto-focus the input
+                setTimeout(() => document.getElementById('test-input')?.focus(), 100);
+                return div;
+            }
+            
+            /**
+             * Renders the Test Results screen.
+             */
+            function renderTestResults() {
+                const div = document.createElement('div');
+                div.className = 'card text-center space-y-6';
+                div.innerHTML = `
+                    <h2 class="text-3xl font-bold text-brand-orange">Time's Up!</h2>
+                    <p class="text-2xl">You scored</p>
+                    <div class="text-7xl font-bold">${state.score} / ${state.problemSet.length}</div>
+                    <div class="space-y-4 pt-4">
+                        <button id="btn-test-again" class="btn btn-primary">Try Again (Same Table)</button>
+                        <button id="btn-select-new" class="btn btn-secondary">Choose New Test</button>
+                    </div>
+                `;
+                return div;
+            }
+
+            /**
+             * Renders the 3-Number Set Mode screen.
+             */
+            function renderSetMode() {
+                const problem = state.currentSet;
+                
+                const div = document.createElement('div');
+                div.className = 'card text-center space-y-6';
+                
+                let content = '';
+                
+                if (state.setQuizStage === 'memorize') {
+                    content = `
+                        <h2 class="text-2xl font-semibold">${state.selectedTable}s Set (${state.problemIndex + 1}/${state.problemSet.length})</h2>
+                        <p class="text-lg">Memorize this fact set:</p>
+                        <div class="flex justify-center items-center space-x-4 text-6xl font-bold p-8">
+                            <span class="text-brand-orange-light">${problem.a}</span>
+                            <span class="text-xl text-brand-text">x</span>
+                            <span class="text-brand-orange-light">${problem.b}</span>
+                            <span class="text-xl text-brand-text">=</span>
+                            <span class="text-brand-orange">${problem.answer}</span>
+                        </div>
+                        <button id="btn-set-ready" class="btn btn-primary">I'm Ready!</button>
+                    `;
+                } else {
+                    // 'quiz' stage
+                    let qA = problem.a, qB = problem.b, qAns = problem.answer;
+                    
+                    if(state.setMissingPart === 'a') qA = '?';
+                    if(state.setMissingPart === 'b') qB = '?';
+                    if(state.setMissingPart === 'answer') qAns = '?';
+
+                    content = `
+                        <h2 class="text-2xl font-semibold">${state.selectedTable}s Set (${state.problemIndex + 1}/${state.problemSet.length})</h2>
+                        <p class="text-lg">What's the missing number?</p>
+                        <form id="set-form">
+                            <div class="flex justify-center items-center space-x-4 text-6xl font-bold p-8">
+                                <span class="text-brand-orange-light">${qA}</span>
+                                <span class="text-xl text-brand-text">x</span>
+                                <span class="text-brand-orange-light">${qB}</span>
+                                <span class="text-xl text-brand-text">=</span>
+                                <span class="text-brand-orange">${qAns}</span>
+                            </div>
+                            <div class="space-y-4">
+                                <label for="set-input" class="sr-only">Missing Number</label>
+                                <input type="text" id="set-input" style="width: 100%; padding: 2rem 1.5rem; font-size: 3.75rem; line-height: 1; text-align: center; background-color: #111827; border-width: 8px; border-style: solid; border-color: #f97316; border-radius: 0.5rem; color: #ffffff; outline: none;" autocomplete="off" autofocus inputmode="numeric" pattern="[0-9]*">
+                                <div id="feedback-container" class="h-10"></div>
+                                <button type="submit" id="btn-set-submit" class="btn btn-primary">Check</button>
+                            </div>
+                        </form>
+                    `;
+                }
+                
+                div.innerHTML = content;
+                // Auto-focus the input
+                setTimeout(() => document.getElementById('set-input')?.focus(), 100);
+                return div;
+            }
+
+            /**
+             * Renders the 3-Set Mode Complete screen.
+             */
+            function renderSetComplete() {
+                const div = document.createElement('div');
+                div.className = 'card text-center space-y-6';
+                div.innerHTML = `
+                    <h2 class="text-3xl font-bold text-brand-orange">Set Mode Complete!</h2>
+                    <p class="text-lg">You finished all sets for the ${state.selectedTable}s table.</p>
+                    <div class="space-y-4">
+                        <button id="btn-set-again" class="btn btn-primary">Practice Same Table</button>
+                        <button id="btn-select-new" class="btn btn-secondary">Choose New Table</button>
+                    </div>
+                `;
+                return div;
+            }
+
+
+            // --- Event Handlers & Logic ---
+
+            /**
+             * Shows visual feedback ("Correct!" or "Incorrect...").
+             * @param {string} type - 'correct' or 'incorrect'.
+             * @param {string} [message] - Optional message.
+             */
+            function showFeedback(type, message = '') {
+                const container = document.getElementById('feedback-container');
+                if (!container) return;
+                
+                if (type === 'correct') {
+                    container.innerHTML = `<div class="feedback feedback-correct">Correct!</div>`;
+                } else {
+                    container.innerHTML = `<div class="feedback feedback-incorrect">${message || 'Try again!'}</div>`;
+                }
+                
+                // Clear feedback after a delay
+                setTimeout(() => {
+                    if (container) container.innerHTML = '';
+                }, 1500);
+            }
+
+            /**
+             * Handles clicks on the main app container (event delegation).
+             */
+            app.addEventListener('click', (e) => {
+                const target = e.target.closest('button');
+                if (!target) return;
+                
+                const id = target.id;
+
+                // --- Menu Navigation ---
+                if (id === 'btn-menu') {
+                    state.screen = 'menu';
+                    state.mode = null;
+                    render();
+                } else if (id === 'btn-practice') {
+                    state.screen = 'select';
+                    state.mode = 'practice';
+                    render();
+                } else if (id === 'btn-test') {
+                    state.screen = 'select';
+                    state.mode = 'test';
+                    render();
+                } else if (id === 'btn-set') {
+                    state.screen = 'select';
+  
+                    state.mode = 'set'; // <-- FIX: Removed extra dot
+                    render();
+                }
+                
+                // --- Table Selection ---
+                else if (target.dataset.table) {
+                    state.selectedTable = parseInt(target.dataset.table);
+                    state.problemSet = generateProblemSet(state.selectedTable);
+                    
+                    if (state.mode === 'practice') {
+                        state.screen = 'practice';
+                        state.problemIndex = 0;
+                        state.practiceStage = 'show'; // Reset practice stage
+                        render();
+                    } else if (state.mode === 'test') {
+                        state.screen = 'test';
+                        startTest();
+                    } else if (state.mode === 'set') {
+                        state.screen = 'set';
+                        startSetMode();
+                    }
+                }
+                
+                // --- Post-Game Navigation ---
+                else if (id === 'btn-practice-again') {
+                    state.screen = 'practice';
+                    state.problemIndex = 0;
+                    state.practiceStage = 'show'; // Reset practice stage
+                    render();
+                } else if (id === 'btn-test-again') {
+                    state.screen = 'test';
+                    startTest();
+                } else if (id === 'btn-set-again') {
+                    state.screen = 'set';
+                    startSetMode();
+                } else if (id === 'btn-select-new') {
+                    state.screen = 'select';
+                    // state.mode is preserved
+                    render();
+                }
+                
+                // --- 3-Set Mode Logic ---
+                else if (id === 'btn-set-ready') {
+                    // Move from 'memorize' to 'quiz'
+                    advanceSetMode();
+                }
+
+                // --- Practice Mode Logic ---
+                else if (id === 'btn-practice-ready') {
+                    state.practiceStage = 'quiz';
+                    render();
+                }
+                
+                // --- Buttons that should ONLY trigger submit ---
+                // We explicitly do nothing here. The 'submit' event handler
+                // will take care of the logic.
+                else if (id === 'btn-practice-submit' || id === 'btn-test-submit' || id === 'btn-set-submit') {
+                    // Do nothing.
+                }
+            });
+            
+            // --- FIX: REMOVED DUPLICATED CODE BLOCK ---
+
+            /**
+             * Handles form submissions (Practice, Test, Set).
+             */
+            app.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const formId = e.target.id;
+                
+                if (formId === 'practice-form') {
+                    handlePracticeSubmit();
+                } else if (formId === 'test-form') {
+                    handleTestSubmit();
+                } else if (formId === 'set-form') {
+                    handleSetSubmit();
+                }
+            });
+            
+            // --- Practice Mode Logic ---
+            
+            function handlePracticeSubmit() {
+                const input = document.getElementById('practice-input');
+                const answer = parseInt(input.value);
+                const problem = state.problemSet[state.problemIndex];
+                
+                if (answer === problem.answer) {
+                    showFeedback('correct');
+                    state.problemIndex++;
+                    state.practiceStage = 'show'; // Reset for next problem
+                    // Wait for feedback to be seen, then render next problem
+                    setTimeout(render, 1000);
+                } else {
+                    showFeedback('incorrect', `Incorrect. ${problem.a} x ${problem.b} = ${problem.answer}`);
+                    input.value = '';
+                }
+            }
+
+            // --- Test Mode Logic ---
+            
+            function startTest() {
+                state.problemSet = shuffleArray(generateProblemSet(state.selectedTable));
+                state.problemIndex = 0;
+                state.score = 0;
+                state.timeLeft = 60;
+                stopTimer(); // Ensure no old timers are running
+                render();
+            }
+
+            function startTestTimer() {
+                const timerEl = document.getElementById('timer');
+                state.timerId = setInterval(() => {
+                    state.timeLeft--;
+                    if (timerEl) {
+                         const minutes = Math.floor(state.timeLeft / 60);
+                         const seconds = state.timeLeft % 60;
+                         timerEl.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+                         if (state.timeLeft <= 10) {
+                            timerEl.classList.add('text-red-500', 'animate-pulse');
+                            timerEl.classList.remove('text-brand-orange');
+                         }
+                    }
+                   
+                    if (state.timeLeft <= 0) {
+                        endTest();
+                    }
+                }, 1000);
+            }
+            
+            function handleTestSubmit() {
+                const input = document.getElementById('test-input');
+                const answer = parseInt(input.value);
+                const problem = state.problemSet[state.problemIndex];
+                
+                if (answer === problem.answer) {
+                    state.score++;
+                }
+                
+                state.problemIndex++;
+                
+                // Re-render to show next problem and updated score
+                // This is fast, no need for feedback
+                render();
+            }
+            
+            function endTest() {
+                stopTimer();
+                state.screen = 'test-results';
+                render();
+            }
+            
+            // --- 3-Number Set Mode Logic ---
+            
+            function startSetMode() {
+                state.problemSet = shuffleArray(generateProblemSet(state.selectedTable));
+                state.problemIndex = 0;
+                loadSetProblem();
+            }
+
+            function loadSetProblem() {
+                if (state.problemIndex >= state.problemSet.length) {
+                    // All sets complete
+                    app.innerHTML = '';
+                    app.appendChild(renderHeader());
+                    app.appendChild(renderSetComplete());
+                    return;
+                }
+                
+                const problem = state.problemSet[state.problemIndex];
+                state.currentSet = { a: problem.a, b: problem.b, answer: problem.answer };
+                state.setRepetitions = 0;
+                state.setQuizStage = 'memorize';
+                render();
+            }
+            
+            function advanceSetMode() {
+                if (state.setRepetitions >= state.maxSetRepetitions) {
+                    // Move to the next set
+                    state.problemIndex++;
+                    loadSetProblem();
+                } else {
+                    // Quiz this set again
+                    state.setQuizStage = 'quiz';
+                    
+                    // Randomly pick which part to hide
+                    const parts = ['a', 'b', 'answer'];
+                    state.setMissingPart = parts[Math.floor(Math.random() * parts.length)];
+                    state.setRepetitions++;
+                    render();
+                }
+            }
+            
+            function handleSetSubmit() {
+                const input = document.getElementById('set-input');
+                const answer = parseInt(input.value);
+                const missingValue = state.currentSet[state.setMissingPart];
+                
+                if (answer === missingValue) {
+                    showFeedback('correct');
+                    // Wait for feedback, then advance
+                    setTimeout(advanceSetMode, 1000);
+                } else {
+                    showFeedback('incorrect', `The missing number was ${missingValue}`);
+                    // Wait for feedback, then advance
+                    setTimeout(advanceSetMode, 1500);
+                }
+            }
+
+            // --- Initial Render ---
+            render();
+        });
+    </script>
+
+</body>
+</html>
+
