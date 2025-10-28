@@ -1,5 +1,5 @@
 // Define a cache name and the files to cache
-const CACHE_NAME = 'pappas-facts-cache-v2';
+const CACHE_NAME = 'pappas-facts-cache-v3';
 const FILES_TO_CACHE = [
     './', // This caches the index.html file at the root
     './index.html', // Explicitly cache index.html
@@ -61,4 +61,3 @@ self.addEventListener('fetch', (e) => {
         })
     );
 });
-

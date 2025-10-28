@@ -96,10 +96,6 @@
             const tempFactDisplay = document.getElementById('temp-fact-display');
             
             // --- PWA Setup ---
-            
-            // 1. Manifest is linked in the <head>
-
-            // 2. Register the external Service Worker file
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('sw.js')
                     .then(() => {
@@ -120,21 +116,19 @@
                 score: 0,
                 timerId: null,
                 timeLeft: 60,
+                // <-- NEW STATE FOR TEST MODE -->
+                finalTime: 0, // Time spent if completed
+                testEndReason: null, // 'completed' or 'time_up'
                 // For 3-Number Set Mode
                 currentSet: { a: 0, b: 0, answer: 0 },
                 setRepetitions: 0,
-                maxSetRepetitions: 5, // <-- CHANGED: Was 3, now 5
+                maxSetRepetitions: 5, 
                 setQuizStage: 'memorize', // 'memorize', 'quiz'
                 setMissingPart: null, // 'a', 'b', 'answer'
             };
 
             // --- Utility Functions ---
             
-            /**
-             * Generates a problem set for a given table (x0 to x12).
-             * @param {number} table - The times table (e.g., 7).
-             * @returns {Array<object>} - Array of {a, b, answer} objects.
-             */
             function generateProblemSet(table) {
                 const set = [];
                 for (let i = 0; i <= 12; i++) {
@@ -143,10 +137,6 @@
                 return set;
             }
 
-            /**
-             * Shuffles an array in place.
-             * @param {Array<any>} array - The array to shuffle.
-             */
             function shuffleArray(array) {
                 for (let i = array.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
@@ -155,9 +145,6 @@
                 return array;
             }
             
-            /**
-             * Clears the timer interval.
-             */
             function stopTimer() {
                 if (state.timerId) {
                     clearInterval(state.timerId);
@@ -167,23 +154,17 @@
 
             // --- Render Functions ---
             
-            /**
-             * Main render function - acts as a router.
-             */
             function render() {
-                // Always clear timer if we're not in the test screen
                 if (state.screen !== 'test') {
                     stopTimer();
                 }
                 
-                app.innerHTML = ''; // Clear the app container
+                app.innerHTML = ''; 
                 
-                // Always add the header, except on the main menu
                 if (state.screen !== 'menu') {
                     app.appendChild(renderHeader());
                 }
                 
-                // Render the correct screen
                 switch (state.screen) {
                     case 'menu':
                         app.appendChild(renderMenu());
@@ -191,10 +172,9 @@
                     case 'select':
                         app.appendChild(renderTableSelect());
                         break;
-                    // <-- REMOVED 'practice' case
                     case 'test':
                         app.appendChild(renderTest());
-                        startTestTimer(); // Start timer when test screen renders
+                        startTestTimer(); 
                         break;
                     case 'test-results':
                         app.appendChild(renderTestResults());
@@ -205,9 +185,6 @@
                 }
             }
             
-            /**
-             * Renders the header with "Back to Menu" button.
-             */
             function renderHeader() {
                 const header = document.createElement('div');
                 header.className = 'w-full flex justify-between items-center mb-4';
@@ -218,9 +195,6 @@
                 return header;
             }
             
-            /**
-             * Renders the main menu.
-             */
             function renderMenu() {
                 const div = document.createElement('div');
                 div.className = 'card text-center space-y-6 animate-fade-in';
@@ -235,13 +209,9 @@
                 return div;
             }
             
-            /**
-             * Renders the times table selection grid.
-             */
             function renderTableSelect() {
                 let title = '';
                 switch (state.mode) {
-                    // <-- REMOVED 'practice' case
                     case 'test': title = 'Test Mode'; break;
                     case 'set': title = '3-Number Sets'; break;
                 }
@@ -259,10 +229,6 @@
                 `;
                 return div;
             }
-            
-            // <-- REMOVED renderPractice() function
-            
-            // <-- REMOVED renderPracticeComplete() function
 
             /**
              * Renders the Test Mode screen.
@@ -270,10 +236,11 @@
             function renderTest() {
                 const problem = state.problemSet[state.problemIndex];
                 
-                // Test ends if no problems left
                 if (!problem) {
+                    // This should be caught by handleTestSubmit, but as a fallback:
+                    state.testEndReason = 'completed';
                     endTest();
-                    return; // render() will be called again by endTest
+                    return; 
                 }
                 
                 const div = document.createElement('div');
@@ -296,388 +263,34 @@
                             </div>
                             <label for="test-input" class="sr-only">Your Answer</label>
                             <input type="text" id="test-input" style="width: 100%; padding: 2rem 1.5rem; font-size: 3.75rem; line-height: 1; text-align: center; background-color: #111827; border-width: 8px; border-style: solid; border-color: #f97316; border-radius: 0.5rem; color: #ffffff; outline: none;" autocomplete="off" autofocus inputmode="numeric" pattern="[0-9]*">
+                            <div id="feedback-container" class="h-10"></div>
                             <button type="submit" id="btn-test-submit" class="btn btn-primary">Submit</button>
                         </div>
                     </form>
                 `;
-                // Auto-focus the input
                 setTimeout(() => document.getElementById('test-input')?.focus(), 100);
                 return div;
             }
             
             /**
              * Renders the Test Results screen.
+             * <-- MODIFIED: Shows time or score based on how test ended. -->
              */
             function renderTestResults() {
                 const div = document.createElement('div');
                 div.className = 'card text-center space-y-6';
-                div.innerHTML = `
-                    <h2 class="text-3xl font-bold text-brand-orange">Time's Up!</h2>
-                    <p class="text-2xl">You scored</p>
-                    <div class="text-7xl font-bold">${state.score} / ${state.problemSet.length}</div>
-                    <div class="space-y-4 pt-4">
-                        <button id="btn-test-again" class="btn btn-primary">Try Again (Same Table)</button>
-                        <button id="btn-select-new" class="btn btn-secondary">Choose New Test</button>
-                    </div>
-                `;
-                return div;
-            }
-
-            /**
-             * Renders the 3-Number Set Mode screen.
-             */
-            function renderSetMode() {
-                const problem = state.currentSet;
-                
-                const div = document.createElement('div');
-                div.className = 'card text-center space-y-6';
                 
                 let content = '';
-                
-                if (state.setQuizStage === 'memorize') {
-                    // <-- ADDED Commutative fact -->
-                    const commutativeFact = (problem.a !== problem.b) ?
-                        `<div class="text-4xl font-bold text-brand-orange-light p-4">
-                            ${problem.b} x ${problem.a} = ${problem.answer}
-                         </div>` : '';
+                if (state.testEndReason === 'completed') {
+                    // User finished in time!
+                    const minutes = Math.floor(state.finalTime / 60);
+                    const seconds = state.finalTime % 60;
+                    const timeString = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 
                     content = `
-                        <h2 class="text-2xl font-semibold">${state.selectedTable}s Set (${state.problemIndex + 1}/${state.problemSet.length})</h2>
-                        <p class="text-lg">Memorize this fact set:</p>
-                        <div class="text-6xl font-bold text-brand-orange-light p-8">
-                            ${problem.a} x ${problem.b} = ${problem.answer}
-                        </div>
-                        ${commutativeFact}
-                        <button id="btn-set-ready" class="btn btn-primary">I'm Ready!</button>
+                        <h2 class="text-3xl font-bold text-brand-orange">Test Complete!</h2>
+                        <p class="text-2xl">You finished all ${state.problemSet.length} questions.</p>
+                        <p class="text-lg">Your time:</p>
+                        <div class="text-7xl font-bold">${timeString}</div>
                     `;
                 } else {
-                    // 'quiz' stage
-                    let qA = problem.a, qB = problem.b, qAns = problem.answer;
-                    
-                    if(state.setMissingPart === 'a') qA = '?';
-                    if(state.setMissingPart === 'b') qB = '?';
-                    if(state.setMissingPart === 'answer') qAns = '?';
-
-                    content = `
-                        <h2 class="text-2xl font-semibold">${state.selectedTable}s Set (${state.problemIndex + 1}/${state.problemSet.length})</h2>
-                        <p class="text-lg">Quiz: ${state.setRepetitions} / ${state.maxSetRepetitions}</p>
-                        <p class="text-lg">What's the missing number?</p>
-                        <form id="set-form">
-                            <div class="flex justify-center items-center space-x-4 text-6xl font-bold p-8">
-                                <span class="text-brand-orange-light">${qA}</span>
-                                <span class="text-xl text-brand-text">x</span>
-                                <span class="text-brand-orange-light">${qB}</span>
-                                <span class="text-xl text-brand-text">=</span>
-                                <span class="text-brand-orange">${qAns}</span>
-                            </div>
-                            <div class="space-y-4">
-                                <label for="set-input" class="sr-only">Missing Number</label>
-                                <input type="text" id="set-input" style="width: 100%; padding: 2rem 1.5rem; font-size: 3.75rem; line-height: 1; text-align: center; background-color: #111827; border-width: 8px; border-style: solid; border-color: #f97316; border-radius: 0.5rem; color: #ffffff; outline: none;" autocomplete="off" autofocus inputmode="numeric" pattern="[0-9]*">
-                                <div id="feedback-container" class="h-10"></div>
-                                <button type="submit" id="btn-set-submit" class="btn btn-primary">Check</button>
-                                <button type="button" id="btn-show-fact" class="btn btn-outline !text-base !py-3">Show Fact (5s)</button>
-                            </div>
-                        </form>
-                    `;
-                }
-                
-                div.innerHTML = content;
-                // Auto-focus the input
-                setTimeout(() => document.getElementById('set-input')?.focus(), 100);
-                return div;
-            }
-
-            /**
-             * Renders the 3-Set Mode Complete screen.
-             */
-            function renderSetComplete() {
-                const div = document.createElement('div');
-                div.className = 'card text-center space-y-6';
-                div.innerHTML = `
-                    <h2 class="text-3xl font-bold text-brand-orange">Set Mode Complete!</h2>
-                    <p class="text-lg">You finished all sets for the ${state.selectedTable}s table.</p>
-                    <div class="space-y-4">
-                        <button id="btn-set-again" class="btn btn-primary">Practice Same Table</button>
-                        <button id="btn-select-new" class="btn btn-secondary">Choose New Table</button>
-                    </div>
-                `;
-                return div;
-            }
-
-
-            // --- Event Handlers & Logic ---
-
-            /**
-             * Shows visual feedback ("Correct!" or "Incorrect...").
-             * @param {string} type - 'correct' or 'incorrect'.
-             * @param {string} [message] - Optional message.
-             */
-            function showFeedback(type, message = '') {
-                const container = document.getElementById('feedback-container');
-                if (!container) return;
-                
-                if (type === 'correct') {
-                    container.innerHTML = `<div class="feedback feedback-correct">Correct!</div>`;
-                } else {
-                    container.innerHTML = `<div class="feedback feedback-incorrect">${message || 'Try again!'}</div>`;
-                }
-                
-                // Clear feedback after a delay
-                setTimeout(() => {
-                    if (container) container.innerHTML = '';
-                }, 1500);
-            }
-
-            /**
-             * Handles clicks on the main app container (event delegation).
-             */
-            app.addEventListener('click', (e) => {
-                const target = e.target.closest('button');
-                if (!target) return;
-                
-                const id = target.id;
-
-                // --- Menu Navigation ---
-                if (id === 'btn-menu') {
-                    state.screen = 'menu';
-                    state.mode = null;
-                    render();
-                } else if (id === 'btn-practice') { // <-- This ID no longer exists, but we'll leave the logic
-                    state.screen = 'select';
-                    state.mode = 'practice';
-                    render();
-                } else if (id === 'btn-test') {
-                    state.screen = 'select';
-                    state.mode = 'test';
-                    render();
-                } else if (id === 'btn-set') {
-                    state.screen = 'select';
-                    state.mode = 'set';
-                    render();
-                }
-                
-                // --- Table Selection ---
-                else if (target.dataset.table) {
-                    state.selectedTable = parseInt(target.dataset.table);
-                    state.problemSet = generateProblemSet(state.selectedTable);
-                    
-                    if (state.mode === 'test') {
-                        state.screen = 'test';
-                        startTest();
-                    } else if (state.mode === 'set') {
-                        state.screen = 'set';
-                        startSetMode();
-                    }
-                    // <-- REMOVED 'practice' logic
-                }
-                
-                // --- Post-Game Navigation ---
-                // <-- REMOVED 'btn-practice-again'
-                else if (id === 'btn-test-again') {
-                    state.screen = 'test';
-                    startTest();
-                } else if (id === 'btn-set-again') {
-                    state.screen = 'set';
-                    startSetMode();
-                } else if (id === 'btn-select-new') {
-                    state.screen = 'select';
-                    // state.mode is preserved
-                    render();
-                }
-                
-                // --- 3-Set Mode Logic ---
-                else if (id === 'btn-set-ready') {
-                    // Move from 'memorize' to 'quiz'
-                    advanceSetMode();
-                }
-                // <-- ADDED "Show Fact" button logic -->
-                else if (id === 'btn-show-fact') {
-                    showTemporaryFact();
-                }
-
-                // <-- REMOVED 'btn-practice-ready' logic
-                
-                // --- Buttons that should ONLY trigger submit ---
-                // We explicitly do nothing here. The 'submit' event handler
-                // will take care of the logic.
-                else if (id === 'btn-practice-submit' || id === 'btn-test-submit' || id === 'btn-set-submit') {
-                    // Do nothing.
-                }
-            });
-            
-            /**
-             * Handles form submissions (Practice, Test, Set).
-             */
-            app.addEventListener('submit', (e) => {
-                e.preventDefault();
-                const formId = e.target.id;
-                
-                if (formId === 'practice-form') {
-                    // handlePracticeSubmit(); // <-- Function removed
-                } else if (formId === 'test-form') {
-                    handleTestSubmit();
-                } else if (formId === 'set-form') {
-                    handleSetSubmit();
-                }
-            });
-            
-            // <-- REMOVED handlePracticeSubmit() function
-
-            // --- Test Mode Logic ---
-            
-            function startTest() {
-                state.problemSet = shuffleArray(generateProblemSet(state.selectedTable));
-                state.problemIndex = 0;
-                state.score = 0;
-                state.timeLeft = 60;
-                stopTimer(); // Ensure no old timers are running
-                render();
-            }
-
-            function startTestTimer() {
-                const timerEl = document.getElementById('timer');
-                if (!timerEl) return; // Exit if element not on screen
-                
-                // Set initial time
-                timerEl.textContent = `1:00`;
-
-                state.timerId = setInterval(() => {
-                    state.timeLeft--;
-                    const timerEl = document.getElementById('timer'); // Re-find element
-                    if (timerEl) {
-                         const minutes = Math.floor(state.timeLeft / 60);
-                         const seconds = state.timeLeft % 60;
-                         timerEl.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-                         if (state.timeLeft <= 10) {
-                            timerEl.classList.add('text-red-500', 'animate-pulse');
-                            timerEl.classList.remove('text-brand-orange');
-                         }
-                    }
-                    
-                    if (state.timeLeft <= 0) {
-                        endTest();
-                    }
-                }, 1000);
-            }
-            
-            function handleTestSubmit() {
-                const input = document.getElementById('test-input');
-                const answer = parseInt(input.value);
-                const problem = state.problemSet[state.problemIndex];
-                
-                if (!problem) return; // Guard against race conditions
-
-                if (answer === problem.answer) {
-                    state.score++;
-                }
-                
-                state.problemIndex++;
-                
-                // Re-render to show next problem and updated score
-                // This is fast, no need for feedback
-                render();
-            }
-            
-            function endTest() {
-                stopTimer();
-                state.screen = 'test-results';
-                render();
-            }
-            
-            // --- 3-Number Set Mode Logic ---
-            
-            function startSetMode() {
-                state.problemSet = shuffleArray(generateProblemSet(state.selectedTable));
-                state.problemIndex = 0;
-                loadSetProblem();
-            }
-
-            function loadSetProblem() {
-                if (state.problemIndex >= state.problemSet.length) {
-                    // All sets complete
-                    app.innerHTML = '';
-                    app.appendChild(renderHeader());
-                    app.appendChild(renderSetComplete());
-                    return;
-                }
-                
-                const problem = state.problemSet[state.problemIndex];
-                state.currentSet = { a: problem.a, b: problem.b, answer: problem.answer };
-                state.setRepetitions = 0;
-                state.setQuizStage = 'memorize';
-                render();
-            }
-            
-            function advanceSetMode() {
-                if (state.setRepetitions >= state.maxSetRepetitions) {
-                    // Move to the next set
-                    state.problemIndex++;
-                    loadSetProblem();
-                } else {
-                    // Quiz this set again
-                    state.setQuizStage = 'quiz';
-                    
-                    // <-- UPDATED: Randomly pick which part to hide -->
-                    const parts = ['a', 'b', 'answer'];
-                    // Ensure 'a' isn't picked if a=0 (0 x 7 = 0)
-                    if (state.currentSet.a === 0 && state.currentSet.answer === 0) {
-                         state.setMissingPart = parts[Math.floor(Math.random() * 2) + 1]; // Only pick 'b' or 'answer'
-                    } else {
-                         state.setMissingPart = parts[Math.floor(Math.random() * parts.length)];
-                    }
-
-                    state.setRepetitions++;
-                    render();
-                }
-            }
-            
-            function handleSetSubmit() {
-                const input = document.getElementById('set-input');
-                const answer = parseInt(input.value);
-                const missingValue = state.currentSet[state.setMissingPart];
-                
-                if (answer === missingValue) {
-                    showFeedback('correct');
-                    // Wait for feedback, then advance
-                    setTimeout(advanceSetMode, 1000);
-                } else {
-                    showFeedback('incorrect', `Incorrect. The answer was ${missingValue}.`);
-                    input.value = '';
-                    // Wait for feedback, then advance
-                    setTimeout(advanceSetMode, 1500);
-                }
-            }
-
-            // <-- ADDED: Function to show the fact temporarily -->
-            function showTemporaryFact() {
-                const problem = state.currentSet;
-                tempFactDisplay.innerHTML = `
-                    <div class="card text-center space-y-4">
-                        <p class="text-lg">Remember this fact set:</p>
-                        <div class="text-6xl font-bold text-brand-orange-light p-8">
-                            ${problem.a} x ${problem.b} = ${problem.answer}
-                        </div>
-                        ${(problem.a !== problem.b) ?
-                        `<div class="text-4xl font-bold text-brand-orange-light p-4">
-                            ${problem.b} x ${problem.a} = ${problem.answer}
-                         </div>` : ''}
-                    </div>
-                `;
-                tempFactDisplay.classList.remove('hidden');
-
-                // Hide it after 5 seconds
-                setTimeout(() => {
-                    tempFactDisplay.classList.add('hidden');
-                    tempFactDisplay.innerHTML = '';
-                    // Re-focus the input
-                    document.getElementById('set-input')?.focus();
-                }, 5000);
-            }
-
-            
-            // --- Initial Render ---
-            render(); 
-        });
-    </script>
-</body>
-</html>
